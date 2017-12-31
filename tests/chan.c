@@ -99,6 +99,13 @@ coroutine void sender3(int ch, int doyield) {
     errno_assert(rc == 0);
 }
 
+coroutine void worker() {
+    int rc = chrecv(chin, NULL, 0, -1);
+    errno_assert(rc == 0);
+    rc = chsend(chout, NULL, 0, -1);
+    errno_assert(rc == 0);
+}
+
 int main() {
     int val;
     int rc;
@@ -310,6 +317,16 @@ int main() {
     rc = chrecv(ch20, NULL, 0, now() + 50);
     errno_assert(rc == -1 && errno == ETIMEDOUT);
     rc = hclose(ch20);
+    errno_assert(rc == 0);
+
+    /* Coroutine's in & out channels. */
+    int hndl13 = go(worker());
+    errno_assert(hndl13 >= 0);
+    rc = chsend(hndl13, NULL, 0, -1);
+    errno_assert(rc == 0);
+    rc = chrecv(hndl13, NULL, 0, -1);
+    errno_assert(rc == 0);
+    rc = hclose(hndl13);
     errno_assert(rc == 0);
 
     return 0;

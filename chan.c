@@ -139,8 +139,14 @@ int chsend(int h, const void *val, size_t len, int64_t deadline) {
     int rc = dill_canblock();
     if(dill_slow(rc < 0)) return -1;
     /* Get the channel interface. */
-    struct dill_chan *ch = hquery(h, dill_chan_type);
-    if(dill_slow(!ch)) return -1;    
+    struct dill_chan *ch;
+    struct dill_cr *cr = hquery(h, dill_cr_type);
+    if(cr) {
+        ch = (struct dill_chan*)&cr->in;
+    } else {
+        ch = hquery(h, dill_chan_type);
+        if(dill_slow(!ch)) return -1;
+    }    
     /* Check if the channel is done. */
     if(dill_slow(ch->done)) {errno = EPIPE; return -1;}
     /* Copy the message directly to the waiting receiver, if any. */
@@ -177,11 +183,18 @@ int chrecv(int h, void *val, size_t len, int64_t deadline) {
     int rc = dill_canblock();
     if(dill_slow(rc < 0)) return -1;
     /* Get the channel interface. */
-    struct dill_chan *ch = hquery(h, dill_chan_type);
-    if(dill_slow(!ch)) return -1;
+    struct dill_chan *ch;
+    struct dill_cr *cr = hquery(h, dill_cr_type);
+    if(cr) {
+        ch = (struct dill_chan*)&cr->out;
+    } else {
+        ch = hquery(h, dill_chan_type);
+        if(dill_slow(!ch)) return -1;
+    }    
     /* Check whether the channel is done. */
     if(dill_slow(ch->done)) {errno = EPIPE; return -1;}
-    /* If there's a sender waiting, copy the message directly from the sender. */
+    /* If there's a sender waiting,
+       copy the message directly from the sender. */
     if(!dill_list_empty(&ch->out)) {
         struct dill_chclause *chcl = dill_cont(dill_list_next(&ch->out),
             struct dill_chclause, item);
@@ -239,8 +252,16 @@ int choose(struct chclause *clauses, int nclauses, int64_t deadline) {
     int i;
     for(i = 0; i != nclauses; ++i) {
         struct chclause *cl = &clauses[i];
-        struct dill_chan *ch = hquery(cl->ch, dill_chan_type);
-        if(dill_slow(!ch)) return i;
+        struct dill_chan *ch;
+        struct dill_cr *cr = hquery(cl->ch, dill_cr_type);
+        if(cr) {
+            ch = cl->op == CHSEND ?
+                (struct dill_chan*)(&cr->in) :
+                (struct dill_chan*)(&cr->out);
+        } else {
+            ch = hquery(cl->ch, dill_chan_type);
+            if(dill_slow(!ch)) return i;
+        }
         if(dill_slow(cl->len > 0 && !cl->val)) {errno = EINVAL; return i;}
         struct dill_chclause *chcl;
         switch(cl->op) {
@@ -282,8 +303,16 @@ int choose(struct chclause *clauses, int nclauses, int64_t deadline) {
     /* Let's wait. */
     struct dill_chclause chcls[nclauses];
     for(i = 0; i != nclauses; ++i) {
-        struct dill_chan *ch = hquery(clauses[i].ch, dill_chan_type);
-        dill_assert(ch);
+        struct dill_chan *ch;
+        struct dill_cr *cr = hquery(clauses[i].ch, dill_cr_type);
+        if(cr) {
+            ch = clauses[i].op == CHSEND ?
+                (struct dill_chan*)(&cr->in) :
+                (struct dill_chan*)(&cr->out);
+        } else {
+            ch = hquery(clauses[i].ch, dill_chan_type);
+            dill_assert(ch);
+        }
         dill_list_insert(&chcls[i].item,
             clauses[i].op == CHRECV ? &ch->in : &ch->out);
         chcls[i].val = clauses[i].val;

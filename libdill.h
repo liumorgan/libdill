@@ -223,6 +223,12 @@ DILL_EXPORT __attribute__((noinline)) void dill_epilogue(void);
 
 #define go(fn) go_mem(fn, NULL, 0)
 
+DILL_EXPORT int dill_chin(void);
+DILL_EXPORT int dill_chout(void);
+
+#define chin (dill_chin())
+#define chout (dill_chout())
+
 DILL_EXPORT int yield(void);
 DILL_EXPORT int msleep(int64_t deadline);
 DILL_EXPORT int fdclean(int fd);

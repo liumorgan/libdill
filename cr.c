@@ -139,7 +139,7 @@ void dill_timer(struct dill_tmclause *tmcl, int id, int64_t deadline) {
 /******************************************************************************/
 
 static const int dill_cr_type_placeholder = 0;
-static const void *dill_cr_type = &dill_cr_type_placeholder;
+const void *dill_cr_type = &dill_cr_type_placeholder;
 static void *dill_cr_query(struct hvfs *vfs, const void *type);
 static void dill_cr_close(struct hvfs *vfs);
 
@@ -191,6 +191,10 @@ int dill_prologue(sigjmp_buf **jb, void **ptr, size_t len,
     cr->ready.next = NULL;
     dill_slist_init(&cr->clauses);
     cr->closer = NULL;
+    cr->inh = chmake_mem(&cr->in);
+    dill_assert(cr->inh >= 0);
+    cr->outh = chmake_mem(&cr->out);
+    dill_assert(cr->outh >= 0);
     cr->no_blocking1 = 0;
     cr->no_blocking2 = 0;
     cr->done = 0;
@@ -261,10 +265,10 @@ static void dill_cr_close(struct hvfs *vfs) {
         if(!cr->ready.next)
             dill_cancel(cr, ECANCELED);
         /* Wait for the coroutine to stop executing. With no clauses added,
-           the only mechanism to resume is through dill_cancel(). This is not really
-           a blocking call, although it looks like one. Given that the coroutine
-           that is being shut down is not permitted to block, we should get
-           control back pretty quickly. */
+           the only mechanism to resume is through dill_cancel(). This is not
+           really a blocking call, although it looks like one. Given that the
+           coroutine that is being shut down is not permitted to block, we
+           should get control back pretty quickly. */
         cr->closer = ctx->r;
         int rc = dill_wait();
         dill_assert(rc == -1 && errno == 0);
@@ -276,9 +280,9 @@ static void dill_cr_close(struct hvfs *vfs) {
     int i;
     for(i = 0; i != cr->stacksz; ++i) {
         if(bottom[i] != 0xa0 + (i % 13)) {
-            /* dill_cr is located on the stack so we have to take that into account.
-               Also, it may be necessary to align the top of the stack to
-               a 16-byte boundary, so add 16 bytes to account for that. */
+            /* dill_cr is located on the stack so we have to take that into
+               account. Also, it may be necessary to align the top of the stack
+               to a 16-byte boundary, so add 16 bytes to account for that. */
             size_t used = cr->stacksz - i - sizeof(struct dill_cr) + 16;
             if(used > cr->census->max_stack)
                 cr->census->max_stack = used;
@@ -289,6 +293,11 @@ static void dill_cr_close(struct hvfs *vfs) {
 #if defined DILL_VALGRIND
     VALGRIND_STACK_DEREGISTER(cr->sid);
 #endif
+    /* Close the default channels in case anyone's blocked on them. */
+    int rc = hclose(cr->inh);
+    dill_assert(rc == 0);
+    rc = hclose(cr->outh);
+    dill_assert(rc == 0);
     /* Now that the coroutine is finished, deallocate it. */
     if(!cr->mem) dill_freestack(cr + 1);
 }
@@ -359,8 +368,8 @@ int dill_wait(void)  {
             /* Never retry the poll when in non-blocking mode. */
             if(!block || fired)
                 break;
-            /* If the timeout was hit but there were no expired timers, do the poll
-               again. It can happen if the timers were canceled in the
+            /* If the timeout was hit but there were no expired timers, do
+               the poll again. It can happen if the timers were canceled in the
                meantime. */
         }
         ctx->last_poll = nw;
@@ -407,4 +416,18 @@ int yield(void) {
     /* Suspend. */
     return dill_wait();
 }
-  
+
+/******************************************************************************/
+/*  In & out channels.                                                        */
+/******************************************************************************/
+
+int dill_chin(void) {
+  struct dill_ctx_cr *ctx = &dill_getctx->cr;
+  return ctx->r->inh;
+}
+
+int dill_chout(void) {
+  struct dill_ctx_cr *ctx = &dill_getctx->cr;
+  return ctx->r->outh;
+}
+
