@@ -100,10 +100,19 @@ coroutine void sender3(int ch, int doyield) {
 }
 
 coroutine void worker() {
-    int rc = chrecv(chin, NULL, 0, -1);
+    char c = 0;
+    int rc = chrecv(chin, &c, 1, -1);
     errno_assert(rc == 0);
-    rc = chsend(chout, NULL, 0, -1);
+    assert(c == 'A');
+    rc = chsend(chout, "B", 1, -1);
     errno_assert(rc == 0);
+}
+
+coroutine void worker2() {
+    char c = 0;
+    int rc = chrecv(chin, &c, 1, -1);
+    assert(rc < 0);
+    errno_assert(errno == EMSGSIZE);
 }
 
 int main() {
@@ -322,11 +331,22 @@ int main() {
     /* Coroutine's in & out channels. */
     int hndl13 = go(worker());
     errno_assert(hndl13 >= 0);
-    rc = chsend(hndl13, NULL, 0, -1);
+    rc = chsend(hndl13, "A", 1, -1);
     errno_assert(rc == 0);
-    rc = chrecv(hndl13, NULL, 0, -1);
+    char c = 0;
+    rc = chrecv(hndl13, &c, 1, -1);
     errno_assert(rc == 0);
+    assert(c == 'B');
     rc = hclose(hndl13);
+    errno_assert(rc == 0);
+
+    /* Message size mismatchs. */
+    int hndl14 = go(worker2());
+    errno_assert(hndl14 >= 0);
+    rc = chsend(hndl14, "AB", 2, -1);
+    assert(rc < 0);
+    errno_assert(errno == EMSGSIZE);
+    rc = hclose(hndl14);
     errno_assert(rc == 0);
 
     return 0;
